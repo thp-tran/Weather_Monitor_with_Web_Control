@@ -205,17 +205,14 @@ String settingsPage()
   )rawliteral";
   return page;
 }
-
-// Parse GET parameter value from URL
+// ====================== GET PARAM PARSER ======================
 String getParamValue(const String &req, const String &key)
 {
   int idx = req.indexOf(key + "=");
-  if (idx == -1)
-    return "";
+  if (idx == -1) return "";
   int start = idx + key.length() + 1;
   int end = req.indexOf('&', start);
-  if (end == -1)
-    end = req.indexOf(' ', start);
+  if (end == -1) end = req.indexOf(' ', start);
   return req.substring(start, end);
 }
 
@@ -223,133 +220,164 @@ void handleConnect(const String &req)
 {
   wifi_ssid = getParamValue(req, "ssid");
   wifi_password = getParamValue(req, "pass");
-  Serial.print("WiFi SSID: ");
-  Serial.println(wifi_ssid);
-  Serial.print("WiFi PASS: ");
-  Serial.println(wifi_password);
+  Serial.print("WiFi SSID: "); Serial.println(wifi_ssid);
+  Serial.print("WiFi PASS: "); Serial.println(wifi_password);
 
   connecting = true;
   connect_start_ms = millis();
 }
 
+int lastWiFiStatus = WL_DISCONNECTED;
+
+// --------------------------------------------------
+// Hàm revert về AP mode khi mất kết nối STA
+// --------------------------------------------------
+
+// --------------------------------------------------
 void startAP()
 {
   WiFi.disconnect();
-  delay(500);
+  vTaskDelay(pdMS_TO_TICKS(500));
 
-  if (WiFi.beginAP(ap_ssid, ap_pass) == WL_AP_LISTENING) {
+  if (WiFi.beginAP(ap_ssid, ap_pass) == WL_AP_LISTENING)
+  {
     Serial.println("[WiFi] Access Point mode started successfully!");
-    Serial.print("SSID: "); Serial.println(ap_ssid);
-    Serial.print("Password: "); Serial.println(ap_pass);
-    Serial.print("IP address: "); Serial.println(WiFi.localIP());
-
-    server.begin();   // Bắt đầu HTTP server trên cổng 80
-  } else {
+    Serial.print("SSID: ");
+    Serial.println(ap_ssid);
+    Serial.print("Password: ");
+    Serial.println(ap_pass);
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+    server.begin();
+  }
+  else
+  {
     Serial.println("[WiFi] Failed to start Access Point mode!");
   }
 }
 
+void revertToAP()
+{
+  Serial.println("[WiFi] Connection lost → Reverting to AP mode...");
+  WiFi.disconnect();
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  startAP();
+  isAPMode = true;
+}
 
-bool startSTA(const char* ssid, const char* pass)
+
+
+bool startSTA(const char *ssid, const char *pass)
 {
   Serial.print("[WiFi] Trying to connect to WiFi: ");
   Serial.println(ssid);
 
   WiFi.disconnect();
-  delay(500);
+  vTaskDelay(pdMS_TO_TICKS(500));
   WiFi.begin(ssid, pass);
 
   unsigned long start = millis();
   const unsigned long timeout = 10000; // 10 giây
 
-  while (WiFi.status() != WL_CONNECTED && millis() - start < timeout) {
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeout)
+  {
     Serial.print(".");
-    delay(500);
+    vTaskDelay(pdMS_TO_TICKS(500));
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED)
+  {
     Serial.println("\n[WiFi] Connected successfully!");
-    Serial.print("STA IP: "); Serial.println(WiFi.localIP());
+    Serial.print("STA IP: ");
+    Serial.println(WiFi.localIP());
+    isAPMode = false;
 
-    // ✅ Chuyển qua STA thành công -> chạy CoreIoT
-    xTaskCreate(coreiot_task, "COREIOT", 4096, NULL, 1, NULL);
-
+    // ✅ Chạy task CoreIoT sau khi kết nối thành công
+    xTaskCreate(coreiot_task, "COREIOT", 512, NULL, 3, NULL);
     return true;
-  } else {
+  }
+  else
+  {
     Serial.println("\n[WiFi] Connection failed, returning to AP mode...");
+    revertToAP();
     return false;
   }
 }
 
 
-
+// --------------------------------------------------
+// --------------------------------------------------
 void webserver_task(void *pvParameters)
 {
   Serial.println("[HTTP] webserver_task started");
-
-  // Khởi động ở AP mode
   startAP();
 
   SensorData latestData = {0, 0};
 
   while (1)
   {
+    static int lostCount = 0;
+    int currentStatus = WiFi.status();
+
+    if (!isAPMode) {
+      if (currentStatus != WL_CONNECTED || WiFi.RSSI() == 0 || WiFi.RSSI() == -127) {
+        lostCount++;
+        if (lostCount >= 5) { // mất 5 lần liên tiếp (~2.5s)
+          Serial.println("[WiFi] Lost connection confirmed, reverting to AP mode...");
+          revertToAP();
+          lostCount = 0;
+        }
+      } else {
+        lostCount = 0; // reset nếu kết nối ổn lại
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(500)); // kiểm tra mỗi 0.5s
     WiFiClient client = server.available();
-    if (!client) {
+    if (!client)
+    {
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
     }
 
     Serial.println("[HTTP] Client connected");
-
-    // Đọc request
     String req = client.readStringUntil('\r');
     client.flush();
-    Serial.println(req);
 
-    // ===========================
-    // 1) Xử lý /connect?ssid=...&pass=...
-    // ===========================
-    if (req.startsWith("GET /connect")) {
+    // ---------- /connect ----------
+    if (req.startsWith("GET /connect"))
+    {
       int ssidIndex = req.indexOf("ssid=");
       int passIndex = req.indexOf("&pass=");
-      if (ssidIndex > 0 && passIndex > 0) {
+      if (ssidIndex > 0 && passIndex > 0)
+      {
         wifi_ssid = req.substring(ssidIndex + 5, passIndex);
         wifi_password = req.substring(passIndex + 6, req.indexOf(" ", passIndex));
 
-        // Decode đơn giản %20 -> space
         wifi_ssid.replace("%20", " ");
         wifi_password.replace("%20", " ");
 
         Serial.println("[HTTP] User input:");
-        Serial.print("SSID: "); Serial.println(wifi_ssid);
-        Serial.print("PASS: "); Serial.println(wifi_password);
+        Serial.print("SSID: ");
+        Serial.println(wifi_ssid);
+        Serial.print("PASS: ");
+        Serial.println(wifi_password);
 
-        // Trả lời trình duyệt
         client.println("HTTP/1.1 200 OK");
         client.println("Content-Type: text/html");
         client.println("Connection: close");
         client.println();
-        client.println("<html><body>");
-        client.println("<h3>Trying to connect...</h3>");
-        client.println("<p>Check Serial Monitor for status.</p>");
-        client.println("</body></html>");
+        client.println("<html><body><h3>Trying to connect...</h3><p>Check Serial Monitor for status.</p></body></html>");
         client.stop();
 
-        // Thử kết nối STA
-        if (!startSTA(wifi_ssid.c_str(), wifi_password.c_str())) {
-          // Nếu fail -> quay lại AP mode + server
-          startAP();
-        }
-
+        startSTA(wifi_ssid.c_str(), wifi_password.c_str());
         continue;
       }
     }
 
-    // ===========================
-    // 2) /settings: trang nhập WiFi
-    // ===========================
-    if (req.indexOf("GET /settings") != -1) {
+    // ---------- /settings ----------
+    if (req.indexOf("GET /settings") != -1)
+    {
       Serial.println("[HTTP] Serving settings page...");
       client.println("HTTP/1.1 200 OK");
       client.println("Content-Type: text/html");
@@ -361,11 +389,11 @@ void webserver_task(void *pvParameters)
       continue;
     }
 
-    // ===========================
-    // 3) /sensors: trả JSON
-    // ===========================
-    if (req.indexOf("GET /sensors") != -1) {
-      if (xQueuePeek(qTempHumi, &latestData, 0) != pdTRUE) {
+    // ---------- /sensors ----------
+    if (req.indexOf("GET /sensors") != -1)
+    {
+      if (xQueuePeek(qTempHumi, &latestData, 0) != pdTRUE)
+      {
         Serial.println("[HTTP] No sensor data yet");
         latestData.temperature = -1;
         latestData.humidity = -1;
@@ -386,27 +414,23 @@ void webserver_task(void *pvParameters)
       continue;
     }
 
-    // ===========================
-    // 4) Điều khiển LED (nếu bạn đang dùng)
-    // ===========================
+    // ---------- LED Control ----------
     if (req.indexOf("/led1?state=on") != -1)
-      digitalWrite(13, HIGH);
+      digitalWrite(5, HIGH);
     else if (req.indexOf("/led1?state=off") != -1)
-      digitalWrite(13, LOW);
+      digitalWrite(5, LOW);
     else if (req.indexOf("/led2?state=on") != -1)
       digitalWrite(4, HIGH);
     else if (req.indexOf("/led2?state=off") != -1)
       digitalWrite(4, LOW);
 
-    // ===========================
-    // 5) Mặc định: trả mainPage()
-    // ===========================
+    // ---------- Default: main page ----------
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: text/html");
     client.println("Connection: close");
     client.println();
     client.print(mainPage());
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(150));
     client.stop();
   }
 }
