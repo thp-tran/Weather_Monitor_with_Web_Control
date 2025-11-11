@@ -1,10 +1,9 @@
 #include "led_blink.h"
-int led = 13;
 
 void led_blinky(void *pvParameters)
 {
     SensorData recv0;
-
+    pinMode(LED_GPIO, OUTPUT);
     while (1)
     {
         if (xQueuePeek(qTempHumi, &recv0, 0) == pdTRUE)
@@ -40,7 +39,6 @@ void led_blinky(void *pvParameters)
         }
         else
         {
-            // Nếu chưa có dữ liệu thì chờ nhẹ
             vTaskDelay(pdMS_TO_TICKS(200));
         }
     }

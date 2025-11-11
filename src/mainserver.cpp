@@ -293,7 +293,7 @@ bool startSTA(const char *ssid, const char *pass)
     isAPMode = false;
 
     // ✅ Chạy task CoreIoT sau khi kết nối thành công
-    xTaskCreate(coreiot_task, "COREIOT", 512, NULL, 3, NULL);
+    xTaskCreate(coreiot_task, "COREIOT", 512, NULL, 2, NULL);
     return true;
   }
   else

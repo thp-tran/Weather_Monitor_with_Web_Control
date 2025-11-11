@@ -2,7 +2,7 @@
 
 // ----------- CONFIGURE THESE -----------
 const char* coreIOT_Server = "app.coreiot.io";
-const char* coreIOT_Token  = "2dh8vkxq8os6718zenr9";  // ✅ Access Token của thiết bị bạn
+const char* coreIOT_Token  = "2dh8vkxq8os6718zenr9";  
 const int   mqttPort        = 1883;
 // --------------------------------------
 
@@ -55,12 +55,12 @@ void coreiot_task(void *pvParameters) {
   SensorData sensorData;
 
   while (1) {
-    if (WiFi.status() == WL_CONNECTED) {
+
       if (!mqttClient.connected()) reconnect_coreiot();
 
-      if (xSemaphoreTake(semDHT, pdMS_TO_TICKS(100)) == pdTRUE) {
-        xQueuePeek(qTempHumi, &sensorData, 0);
-        xSemaphoreGive(semDHT);
+      if (xQueuePeek(qTempHumi, &sensorData, 0) != pdTRUE) {
+        sensorData.humidity = -1;
+        sensorData.temperature = -1;
       }
 
       // Publish telemetry JSON
@@ -70,9 +70,6 @@ void coreiot_task(void *pvParameters) {
       Serial.println("Published to CoreIoT: " + payload);
 
       mqttClient.loop();
-    } else {
-      Serial.println("WiFi lost, waiting to reconnect...");
-    }
 
     vTaskDelay(pdMS_TO_TICKS(10000));  // 10s mỗi lần gửi
   }

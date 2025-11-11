@@ -3,7 +3,7 @@
 #include "temp_hum_sensor.h"
 #include "mainserver.h"
 #include "coreiot.h"
-#include "led_matrix.h"
+
 void setup() {
   Serial.begin(9600);
   pinMode(5, OUTPUT);
@@ -12,8 +12,8 @@ void setup() {
   Serial.println("Start");
   qTempHumi = xQueueCreate(1, sizeof(SensorData));
   xTaskCreate(temp_hum_monitor, "TEMP", 256, NULL, 3, NULL);
-  // xTaskCreate(led_blinky, "BLINK", 512, NULL, 2, NULL);
-  xTaskCreate(led_matrix, "LED_Matrix", 256, NULL, 2, NULL);
+  xTaskCreate(led_blinky, "BLINK", 512, NULL, 2, NULL);
+ 
   xTaskCreate(webserver_task, "WebServer", 512, NULL, 2, NULL);
   vTaskStartScheduler();
 }

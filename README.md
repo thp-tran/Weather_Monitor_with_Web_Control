@@ -19,7 +19,8 @@ and allows remote monitoring & control through a **local web dashboard** and **C
 
 ### 🌡️ Environmental Monitoring
 - Reads temperature & humidity via **DHT22**.
-- Displays data on **I2C LCD (20x4)** and optional **LED matrix**.
+- Displays data on **I2C LCD (20x4)**.
+- Controls an LED to blink based on humidity readings.
 
 ### 💻 Local Web Dashboard
 - Hosted directly on UNO R4 WiFi.
